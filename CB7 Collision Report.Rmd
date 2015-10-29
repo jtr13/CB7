@@ -1,0 +1,128 @@
+---
+title: "CB 7 Collision Report"
+author: "Joyce Robbins"
+date: "October 28, 2015"
+output: word_document
+---
+```{r echo = FALSE, message = FALSE}
+# preliminary steps
+library(dplyr)
+library(lubridate)
+library(RColorBrewer)
+
+dat <- read.csv("CB7-10023-10024-10025-10069.csv", stringsAsFactors = FALSE, header = TRUE)
+# d$IK is greater than 0 if someone is injured or killed 
+dat$IK <- dat[,11] + dat[,12] 
+dat$DATE <- as.Date(dat$DATE, "%m/ %d/ %Y")
+yearlab = c("2013", "2014", "2015 (to date)")
+
+newdata <- dat %>%
+ filter (IK > 0) %>%
+ mutate(year = year(DATE), monthnum = month(DATE), month = month(DATE, label=T)) %>%
+ filter (year >= 2013)
+```
+
+
+
+## Data Source
+https://data.cityofnewyork.us/NYC-BigApps/CB7-10023-10024-10025-10069-/3deq-ujhm
+
+## Number of Persons Injured
+
+```{r echo = FALSE}
+injured <- newdata %>% group_by(year)  %>% 
+   select(contains ("INJURED")) %>% 
+   summarise_each(funs(sum)) 
+rownames(injured) <- injured$year
+injured <- select(injured, -year)
+labels <- c("Total", "Pedestrians", "Cyclists", "Motorists")
+barplot(as.matrix(injured), ylim = c(0, max(injured)+100), beside = TRUE, names = labels, legend.text = yearlab)
+```
+The number of injuries went down from 2013 to 2014...
+
+## Number of Persons Killed
+
+```{r echo = FALSE}
+killed <- newdata %>% group_by(year)  %>% select(contains ("KILLED")) %>% summarise_each(funs(sum))
+rownames(killed) <- killed$year
+killed <- select(killed, -year)
+labels <- c("Total", "Pedestrians", "Cyclists", "Motorists")
+barplot(as.matrix(killed), ylim = c(0, max(killed)+10), beside = TRUE, names = labels, legend.text = yearlab)
+```
+
+... but the number killed went up from `r killed[which(rownames(killed)=="2013"),1]` to `r killed[which(rownames(killed)=="2014"),1]` from 2013 to 2014.  
+
+## Monthly Pattern of Injuries/Deaths
+``` {r echo = FALSE}
+monthdata <- newdata %>% group_by(year, month) %>%
+   arrange(year, monthnum) %>%
+   summarise(IK = sum(IK))
+ts <- ts(monthdata$IK, start = c(2013,1), frequency = 12)
+
+monthplot(ts, ylab = "# of injuries/deaths")
+
+md <- ungroup(monthdata)
+h <- head(arrange(md, desc(IK)), 5)
+t <- tail(arrange(md, desc(IK)), 5)
+
+```
+
+## Observations
+June is consistently high:  
+```{r echo=FALSE}
+june <- which(monthdata$month == "Jun")
+cat(paste("June",monthdata$year[june], "--",monthdata$IK[june], "injured/killed", collapse = "\n"))
+```
+
+Otherwise, no clear pattern emerges. There are no repeated months in either the top five or bottom five for injured/killed, and `r length(intersect(h$month,t$month))` months appear in both lists: `r intersect(h$month,t$month)`.  
+
+Top five: 
+``` {r echo = FALSE}
+cat(paste0(h$month, " ", h$year, " (" ,h$IK, ")", collapse="\n"))
+```
+Bottom five:  
+``` {r echo = FALSE}
+cat(paste0(t$month, " ", t$year, " (" ,t$IK, ")", collapse="\n"))
+``` 
+ 
+## Location
+Plotting (longitude, latitude) shows that injured/killed are distributed throughout the community board district:
+
+```{r echo=FALSE}
+library(OpenStreetMap)
+library(rgdal)
+library(rJava)
+map <- openmap(c(40.8277,-74.0257), c(40.7552,-73.8513), type = "osm")
+#map <- openmap(c(43.611522,1.428533), c(43.598903,1.461059), type = "osm")
+plot(map)
+
+
+ #openmap(upperLeft, lowerRight, zoom = NULL, type = c("osm", "osm-bw",
+ #     "maptoolkit-topo", "waze", "mapquest", "mapquest-aerial", "bing",
+ #     "stamen-toner", "stamen-terrain", "stamen-watercolor", "osm-german",
+ #     "osm-wanderreitkarte", "mapbox", "esri", "esri-topo", "nps", "apple-iphoto",
+ #     "skobbler", "cloudmade-<id>", "hillshade", "opencyclemap", "osm-transport",
+ #     "osm-public-transport", "osm-bbike", "osm-bbike-german"), minNumTiles = 9L,
+ #     mergeTiles = TRUE)
+
+t <- tally(group_by(newdata, LONGITUDE, LATITUDE))
+c <- brewer.pal (n = 9, name = "Blues")
+c <- c[5:9]
+d <- rbind(c,c,c,c)
+dim(d) <- c(20,1)
+d <- d[,1]
+colors <- d
+points(t$LONGITUDE,t$LATITUDE, asp = 1, cex = .2*t$n, col = colors[t$n])
+
+most <- which (newdata$LONGITUDE == t$LONGITUDE[which.max(t$n)])
+```
+
+## Intersection with the highest # of injured/killed  
+
+Intersection: `r newdata$ON.STREET.NAME[most[1]]` and `r newdata$CROSS.STREET.NAME[most[1]]`  
+Collisions by month: 
+```{r echo=FALSE}
+tally(group_by(newdata[most,], year, month))
+```
+
+
